@@ -1,3 +1,6 @@
+import os
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app import models
@@ -13,6 +16,17 @@ app = FastAPI(
     description="API RESTful para divisão de contas, balanço de saldos e simplificação de dívidas.",
     version="1.0.0",
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+if os.path.isdir("frontend"):
+    app.mount("/interface", StaticFiles(directory="frontend", html=True), name="frontend")
 
 
 # TRATAMENTO GLOBAL DE EXCEÇÕES DE DOMÍNIO 
