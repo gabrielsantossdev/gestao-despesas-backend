@@ -44,6 +44,7 @@ def _criar_usuario_aux(nome: str, email: str, cpf: str, chave_pix: str):
         "/usuarios/",
         json={
             "nome": nome,
+            "telefone": "89999998888",
             "email": email,
             "cpf": cpf,
             "senha": "senha123",
@@ -65,6 +66,7 @@ def test_cadastro_usuario_e_bloqueio_duplicidade():
         "/usuarios/",
         json={
             "nome": "Outra Ana",
+            "telefone": "89988887777",
             "email": "ana@email.com",
             "cpf": "99988877766",
             "senha": "senha123",
