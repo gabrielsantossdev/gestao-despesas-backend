@@ -154,3 +154,153 @@ window.addEventListener("DOMContentLoaded", async () => {
   await carregarUsuarios();
   await carregarGrupos();
 });
+
+// DESPESAS E RESUMO FINANCEIRO
+function getGrupoAtivoObj() {
+  const id = Number(document.getElementById("d-grupo-ativo").value);
+  return gruposCache.find((g) => g.id === id) || null;
+}
+
+function renderizarCamposDivisao() {
+  const tipo = document.getElementById("d-tipo").value;
+  const box = document.getElementById("box-divisao-custom");
+  const grupo = getGrupoAtivoObj();
+
+  if (tipo === "IGUAL" || !grupo || !grupo.membros.length) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+
+  const labelUnidade = tipo === "EXATA" ? "Valor (R$)" : "Percentual (%)";
+  box.classList.remove("hidden");
+  box.innerHTML =
+    `<p style="margin:0 0 8px; font-size:0.85rem;"><strong>Informe o ${labelUnidade} por membro:</strong></p>` +
+    grupo.membros
+      .map(
+        (m) => `<div class="custom-row">
+          <span>${m.nome}</span>
+          <input type="number" step="0.01" min="0" class="input-divisao" data-user-id="${m.id}" placeholder="0.00" required />
+        </div>`
+      )
+      .join("");
+}
+
+async function atualizarPainelDespesas() {
+  const grupo = getGrupoAtivoObj();
+  const selPagador = document.getElementById("d-pagador");
+
+  if (!grupo) {
+    selPagador.innerHTML = "";
+    document.getElementById("lista-despesas").innerHTML = "<p>Crie um grupo primeiro.</p>";
+    return;
+  }
+
+  selPagador.innerHTML = grupo.membros
+    .map((m) => `<option value="${m.id}">${m.nome}</option>`)
+    .join("");
+  renderizarCamposDivisao();
+
+  try {
+    const [despesas, resumo] = await Promise.all([
+      apiFetch(`/despesas/grupo/${grupo.id}`),
+      apiFetch(`/grupos/${grupo.id}/resumo`),
+    ]);
+
+    document.getElementById("total-grupo-badge").textContent =
+      `Total: R$ ${resumo.total_despesas_grupo.toFixed(2)}`;
+
+    document.getElementById("resumo-saldos").innerHTML = resumo.saldos
+      .map((s) => {
+        const cls = s.saldo_liquido > 0 ? "saldo-pos" : s.saldo_liquido < 0 ? "saldo-neg" : "";
+        const sinal = s.saldo_liquido > 0 ? "+" : "";
+        return `<div class="item-box item-top">
+          <span><strong>${s.nome}</strong> (Pagou R$ ${s.total_pago.toFixed(2)} | Deve R$ ${s.total_devido.toFixed(2)})</span>
+          <span class="${cls}">${sinal}R$ ${s.saldo_liquido.toFixed(2)}</span>
+        </div>`;
+      })
+      .join("");
+
+    document.getElementById("resumo-acertos").innerHTML = resumo.acertos_simplificados.length
+      ? resumo.acertos_simplificados
+          .map(
+            (a) => `<div class="acerto-card">
+              <div><strong>${a.devedor_nome}</strong> deve transferir <strong>R$ ${a.valor.toFixed(2)}</strong> para <strong>${a.credor_nome}</strong></div>
+              <div class="pix-row">
+                <span>Chave PIX: <code>${a.credor_chave_pix}</code></span>
+                <button type="button" class="btn-outline" onclick="navigator.clipboard.writeText('${a.credor_chave_pix}'); mostrarAlerta('Chave PIX copiada!')">Copiar PIX</button>
+              </div>
+            </div>`
+          )
+          .join("")
+      : `<p style="color:#64748b; font-size:0.9rem;">Nenhuma transferência pendente no grupo.</p>`;
+
+    document.getElementById("lista-despesas").innerHTML = despesas.length
+      ? despesas
+          .map((d) => {
+            const pagador = grupo.membros.find((m) => m.id === d.pagador_id);
+            return `<div class="item-box item-top">
+              <div>
+                <strong>${d.descricao}</strong> — R$ ${d.valor_total.toFixed(2)}
+                <div style="font-size:0.82rem; color:#64748b;">Pago por: ${pagador ? pagador.nome : "#" + d.pagador_id} | Data: ${d.dia_compra}</div>
+              </div>
+              <button type="button" class="btn-danger" onclick="excluirDespesa(${d.id})">Excluir</button>
+            </div>`;
+          })
+          .join("")
+      : `<p style="color:#64748b; font-size:0.9rem;">Nenhuma despesa lançada neste grupo.</p>`;
+  } catch (err) {
+    mostrarAlerta(err.message, "erro");
+  }
+}
+
+async function excluirDespesa(id) {
+  try {
+    await apiFetch(`/despesas/${id}`, { method: "DELETE" });
+    mostrarAlerta("Despesa excluída!");
+    await atualizarPainelDespesas();
+  } catch (err) {
+    mostrarAlerta(err.message, "erro");
+  }
+}
+
+document.getElementById("d-grupo-ativo").addEventListener("change", atualizarPainelDespesas);
+document.getElementById("d-tipo").addEventListener("change", renderizarCamposDivisao);
+
+document.getElementById("form-despesa").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const grupo = getGrupoAtivoObj();
+  if (!grupo) return;
+
+  const tipo = document.getElementById("d-tipo").value;
+  let divisoes = null;
+
+  if (tipo !== "IGUAL") {
+    divisoes = Array.from(document.querySelectorAll(".input-divisao")).map((inp) => ({
+      usuario_id: Number(inp.dataset.userId),
+      [tipo === "EXATA" ? "valor_devido" : "percentual"]: Number(inp.value),
+    }));
+  }
+
+  const diaCompra = document.getElementById("d-compra").value || null;
+
+  try {
+    await apiFetch("/despesas/", {
+      method: "POST",
+      body: JSON.stringify({
+        descricao: document.getElementById("d-descricao").value,
+        valor_total: Number(document.getElementById("d-valor").value),
+        dia_compra: diaCompra,
+        grupo_id: grupo.id,
+        pagador_id: Number(document.getElementById("d-pagador").value),
+        tipo_divisao: tipo,
+        divisoes,
+      }),
+    });
+    e.target.reset();
+    mostrarAlerta("Despesa registrada e saldos recalculados!");
+    await atualizarPainelDespesas();
+  } catch (err) {
+    mostrarAlerta(err.message, "erro");
+  }
+});
