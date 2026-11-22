@@ -1,32 +1,38 @@
-# Sistema de Gestão de Despesas Compartilhadas
+# Sistema de Gestão de Despesas Compartilhadas (Rateio Fácil)
 
-API RESTful desenvolvida para a disciplina de **Engenharia de Software II**, voltada ao gerenciamento de contas compartilhadas em repúblicas estudantis, viagens e grupos, com cálculo automático de saldos, simplificação de dívidas cruzadas e exibição de chave PIX para quitação.
+Aplicação completa (Back-end RESTful + Interface Web) desenvolvida para a disciplina de **Engenharia de Software II** da **Universidade Federal do Piauí (UFPI — Campus Senador Helvídio Nunes de Barros, Picos)**, sob orientação do Prof. Raí Araújo de Miranda.
 
-## Arquitetura e Tecnologias
+O sistema automatiza o controle financeiro de repúblicas estudantis, viagens e grupos de convivência, permitindo cadastrar participantes com chaves PIX, organizar grupos, registrar despesas com diferentes regras de rateio (igualitária, por valor exato ou por percentual) e calcular o balanço líquido com simplificação automática de dívidas.
 
-O sistema foi estruturado como um **Monólito Modular em Camadas**, garantindo separação de responsabilidades e baixo acoplamento:
+---
 
-* **Linguagem:** Python 3.12+
-* **Framework Web:** FastAPI
-* **ORM e Banco de Dados:** SQLAlchemy + SQLite
-* **Validação de Dados:** Pydantic
-* **Testes Automatizados:** Pytest
+## Integrantes da Equipe
+* **Gabriel Santos** (`@gabrielsantossdev`)
+* **João Hitalo** (`@joaoHitalo`)
 
-### Estrutura de Pastas
+---
+
+## Arquitetura e Estrutura do Projeto
+
+O back-end segue o padrão de **Monólito Modular em Camadas**, com separação clara entre roteamento HTTP, validação de contratos, regras de negócio e persistência relacional, além de servir diretamente a interface web estática:
 
 ```text
 gestao-despesas-backend/
 ├── app/
 │   ├── __init__.py
-│   ├── database.py      # Configuração da conexão SQLite e sessão do banco
-│   ├── models.py        # Entidades relacionais (Usuario, Grupo, GrupoMembro, Despesa, Divisao)
-│   ├── schemas.py       # Contratos de entrada/saída e validações Pydantic
-│   ├── repositories.py  # Camada de persistência e operações CRUD no banco
-│   ├── services.py      # Regras de negócio, cálculo de divisões e simplificação de dívidas
-│   ├── controllers.py   # Endpoints RESTful organizados por domínio
-│   └── main.py          # Inicialização da aplicação FastAPI e tratamento global de exceções
+│   ├── main.py            # Ponto de entrada FastAPI, CORS, arquivos estáticos e handlers de erro
+│   ├── database.py        # Configuração de conexão e sessão SQLAlchemy (SQLite)
+│   ├── models.py          # Entidades ORM (Usuario, Grupo, GrupoMembro, Despesa, Divisao)
+│   ├── schemas.py         # Contratos Pydantic de entrada, saída e validação de tipos
+│   ├── repositories.py    # Camada de acesso a dados (operações CRUD)
+│   ├── services.py        # Regras de negócio, rateios e algoritmo de simplificação de dívidas
+│   └── controllers.py     # Rotas RESTful (/usuarios, /grupos, /despesas)
+├── frontend/
+│   ├── index.html         # Estrutura visual das abas (Usuários, Grupos e Despesas/PIX)
+│   ├── style.css          # Estilização responsiva da interface
+│   └── app.js             # Consumo da API RESTful via Fetch API
 ├── tests/
 │   ├── __init__.py
-│   └── test_api.py      # Testes automatizados de integração e regras de negócio
-├── requirements.txt
+│   └── test_api.py        # Testes automatizados de integração com Pytest
+├── requirements.txt       # Dependências do projeto
 └── README.md
