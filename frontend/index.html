@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestão de Despesas Compartilhadas</title>
+  <title>Rateio Fácil — Gestão de Despesas Compartilhadas</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -13,10 +13,16 @@
         <h1>Rateio Fácil</h1>
         <p>Sistema de Gestão de Despesas Compartilhadas</p>
       </div>
+
+      <div class="session-badge">
+        <span class="status-dot"></span>
+        <span>Logado como: <strong id="usuario-logado-nome">Gabriel Santos</strong></span>
+      </div>
+
       <nav class="tabs">
-        <button class="tab-btn active" data-tab="usuarios">1. Usuários</button>
+        <button class="tab-btn active" data-tab="amigos">1. Meus Amigos</button>
         <button class="tab-btn" data-tab="grupos">2. Grupos & Membros</button>
-        <button class="tab-btn" data-tab="despesas">3. Despesas & Acerto PIX</button>
+        <button class="tab-btn" data-tab="despesas">3. Despesas, Extrato & PIX</button>
       </nav>
     </div>
   </header>
@@ -24,54 +30,39 @@
   <main class="container">
     <div id="alerta" class="alerta hidden"></div>
 
-    <!-- ABA 1: USUÁRIOS -->
-    <section id="tab-usuarios" class="tab-panel active">
+    <!-- ABA 1: AMIGOS -->
+    <section id="tab-amigos" class="tab-panel active">
       <div class="grid-2">
         <div class="card">
-          <h2>Cadastrar Participante</h2>
-          <form id="form-usuario">
-            <label>Nome completo
-              <input type="text" id="u-nome" placeholder="Ex: Gabriel Santos" required minlength="2" />
+          <h2>Adicionar Amigo</h2>
+          <p class="subtitle">
+            Informe o e-mail de alguém que já possui conta no sistema para adicioná-lo à sua rede e incluí-lo nos seus grupos.
+          </p>
+
+          <form id="form-amigo-email">
+            <label>E-mail do amigo
+              <input type="email" id="amigo-email-input" placeholder="Ex: ana@rateiofacil.com" required />
             </label>
-            <div class="row-2">
-              <label>Telefone
-                <input type="text" id="u-telefone" placeholder="89999998888" required minlength="8" />
-              </label>
-              <label>CPF
-                <input type="text" id="u-cpf" placeholder="11122233344" required minlength="11" maxlength="14" />
-              </label>
-            </div>
-            <label>E-mail
-              <input type="email" id="u-email" placeholder="gabriel@email.com" required />
-            </label>
-            <div class="row-2">
-              <label>Senha
-                <input type="password" id="u-senha" placeholder="Mínimo 4 caracteres" required minlength="4" />
-              </label>
-              <label>Chave PIX
-                <input type="text" id="u-pix" placeholder="E-mail, CPF, telefone ou aleatória" required minlength="3" />
-              </label>
-            </div>
-            <button type="submit" class="btn-primary">Salvar Usuário</button>
+            <button type="submit" class="btn-primary">Adicionar Amigo</button>
           </form>
         </div>
 
         <div class="card">
           <div class="card-header">
-            <h2>Usuários Cadastrados</h2>
-            <button type="button" class="btn-outline" onclick="carregarUsuarios()">Atualizar</button>
+            <h2>Meus Amigos Conectados</h2>
+            <button type="button" class="btn-outline" onclick="carregarAmigos()">Atualizar</button>
           </div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>ID</th>
                   <th>Nome</th>
                   <th>E-mail</th>
                   <th>Chave PIX</th>
+                  <th>Ação</th>
                 </tr>
               </thead>
-              <tbody id="lista-usuarios"></tbody>
+              <tbody id="lista-amigos"></tbody>
             </table>
           </div>
         </div>
@@ -92,12 +83,12 @@
 
           <hr />
 
-          <h2>Vincular Membro ao Grupo</h2>
+          <h2>Adicionar Amigo ao Grupo</h2>
           <form id="form-membro">
             <label>Selecione o Grupo
               <select id="m-grupo-id" required></select>
             </label>
-            <label>Selecione o Usuário
+            <label>Selecione um Amigo
               <select id="m-usuario-id" required></select>
             </label>
             <button type="submit" class="btn-secondary">Adicionar ao Grupo</button>
@@ -106,7 +97,7 @@
 
         <div class="card">
           <div class="card-header">
-            <h2>Grupos e Integrantes</h2>
+            <h2>Meus Grupos e Integrantes</h2>
             <button type="button" class="btn-outline" onclick="carregarGrupos()">Atualizar</button>
           </div>
           <div id="lista-grupos" class="stack"></div>
@@ -114,53 +105,79 @@
       </div>
     </section>
 
-    <!-- ABA 3: DESPESAS E RESUMO FINANCEIRO -->
+    <!-- ABA 3: DESPESAS, EXTRATO INDIVIDUAL E RESUMO FINANCEIRO -->
     <section id="tab-despesas" class="tab-panel">
       <div class="card filter-bar">
-        <label><strong>Grupo Ativo para Lançamentos e Balanço:</strong>
+        <label><strong>Grupo Ativo para Lançamentos, Extrato e Acerto:</strong>
           <select id="d-grupo-ativo"></select>
         </label>
       </div>
 
       <div class="grid-2">
-        <div class="card">
-          <h2>Lançar Nova Despesa</h2>
-          <form id="form-despesa">
-            <label>Descrição
-              <input type="text" id="d-descricao" placeholder="Ex: Aluguel, Energia, Supermercado" required minlength="2" />
-            </label>
-            <div class="row-2">
-              <label>Valor Total (R$)
-                <input type="number" id="d-valor" step="0.01" min="0.01" placeholder="150.00" required />
+        <div class="stack">
+          <div class="card">
+            <h2>Lançar Nova Despesa</h2>
+            <form id="form-despesa">
+              <label>Descrição
+                <input type="text" id="d-descricao" placeholder="Ex: Aluguel, Energia, Supermercado" required minlength="2" />
               </label>
-              <label>Quem Pagou?
-                <select id="d-pagador" required></select>
-              </label>
-            </div>
-            <div class="row-2">
-              <label>Data da Compra
-                <input type="date" id="d-compra" />
-              </label>
+
+              <div class="row-2">
+                <label>Valor Total (R$)
+                  <input type="number" id="d-valor" step="0.01" min="0.01" placeholder="150,00" required />
+                </label>
+                <label>Situação do Pagamento
+                  <select id="d-status">
+                    <option value="PAGA">Já foi paga</option>
+                    <option value="PENDENTE">Pendente / A pagar (ninguém pagou)</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="row-2">
+                <label id="wrap-pagador">Quem Pagou?
+                  <select id="d-pagador"></select>
+                </label>
+                <label id="wrap-responsavel-pix" class="hidden">Responsável pelo PIX
+                  <select id="d-responsavel-pix"></select>
+                </label>
+                <label>Data (Compra / Vencimento)
+                  <input type="date" id="d-compra" />
+                </label>
+              </div>
+
               <label>Tipo de Divisão
                 <select id="d-tipo">
-                  <option value="IGUAL">Igualitária (todos do grupo)</option>
+                  <option value="IGUAL">Igualitária (selecionar participantes)</option>
                   <option value="EXATA">Valores Exatos (R$)</option>
                   <option value="PORCENTAGEM">Porcentagem (%)</option>
                 </select>
               </label>
+
+              <div id="box-divisao-custom" class="custom-split hidden"></div>
+
+              <button type="submit" class="btn-primary">Registrar Despesa</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Meu Extrato Detalhado no Grupo</h2>
+              <span id="extrato-usuario-badge" class="badge">Meu Resumo</span>
             </div>
-
-            <div id="box-divisao-custom" class="custom-split hidden"></div>
-
-            <button type="submit" class="btn-primary">Registrar Despesa</button>
-          </form>
+            <div id="extrato-resumo-cards" class="row-3"></div>
+            <div id="lista-extrato-membro" class="stack-sm" style="margin-top: 12px;"></div>
+          </div>
         </div>
 
         <div class="stack">
           <div class="card">
             <div class="card-header">
-              <h2>Balanço & Simplificação de Dívidas</h2>
-              <span id="total-grupo-badge" class="badge">Total: R$ 0,00</span>
+              <h2>Saldo & Acerto de Contas</h2>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <span id="total-grupo-badge" class="badge">Pago: R$ 0,00</span>
+                <span id="total-pendente-badge" class="badge badge-warn">Pendente: R$ 0,00</span>
+              </div>
             </div>
             <div id="resumo-saldos" class="stack-sm"></div>
             <h3>Transferências Sugeridas (PIX)</h3>
@@ -168,8 +185,18 @@
           </div>
 
           <div class="card">
-            <h2>Histórico de Despesas do Grupo</h2>
+            <h2>Contas Pendentes (A Pagar)</h2>
+            <div id="lista-pendentes" class="stack-sm"></div>
+          </div>
+
+          <div class="card">
+            <h2>Histórico de Despesas Pagas</h2>
             <div id="lista-despesas" class="stack-sm"></div>
+          </div>
+
+          <div id="card-acertos-realizados" class="card hidden">
+            <h2>Acertos PIX Registrados</h2>
+            <div id="lista-acertos-realizados" class="stack-sm"></div>
           </div>
         </div>
       </div>

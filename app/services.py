@@ -1,19 +1,22 @@
 import hashlib
 from datetime import date
-from typing import Dict, List
+from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 from app import models, schemas
-from app.repositories import UsuarioRepository, GrupoRepository, DespesaRepository
+from app.repositories import (
+    UsuarioRepository,
+    AmizadeRepository,
+    GrupoRepository,
+    DespesaRepository,
+)
 
 
 # EXCEÇÕES DE DOMÍNIO (Desacopladas do protocolo HTTP / RNF4)
 class RegraNegocioError(Exception):
-    # Erro disparado quando alguma regra de negócio ou validação lógica é violada.
     pass
 
 
 class RecursoNaoEncontradoError(Exception):
-    # Erro disparado quando um usuário, grupo ou despesa não existe no banco.
     pass
 
 
@@ -27,8 +30,6 @@ class UsuarioService:
     def criar_usuario(db: Session, dados: schemas.UsuarioCreate) -> models.Usuario:
         if UsuarioRepository.buscar_por_email(db, dados.email):
             raise RegraNegocioError("Já existe um usuário cadastrado com este e-mail.")
-        if UsuarioRepository.buscar_por_cpf(db, dados.cpf):
-            raise RegraNegocioError("Já existe um usuário cadastrado com este CPF.")
 
         senha_hash = UsuarioService._gerar_hash_senha(dados.senha)
         return UsuarioRepository.criar(db, dados, senha_hash)
@@ -55,7 +56,48 @@ class UsuarioService:
         UsuarioRepository.deletar(db, usuario)
 
 
-# SERVIÇO DE GRUPOS E MORADORES (RF1)
+# SERVIÇO DE AMIZADES (RF7)
+class AmizadeService:
+    @staticmethod
+    def adicionar_amigo(db: Session, usuario_id: int, dados: schemas.AmigoAdd) -> models.Usuario:
+        UsuarioService.obter_usuario(db, usuario_id)
+
+        amigo: Optional[models.Usuario] = None
+        if dados.amigo_id is not None:
+            amigo = UsuarioService.obter_usuario(db, dados.amigo_id)
+        elif dados.email is not None:
+            amigo = UsuarioRepository.buscar_por_email(db, dados.email)
+            if not amigo:
+                raise RecursoNaoEncontradoError(f"Nenhum usuário encontrado com o e-mail {dados.email}.")
+        else:
+            raise RegraNegocioError("Informe o ID ou o e-mail do amigo para adicionar.")
+
+        if amigo.id == usuario_id:
+            raise RegraNegocioError("Você não pode adicionar a si mesmo como amigo.")
+
+        if AmizadeRepository.buscar_vinculo(db, usuario_id, amigo.id):
+            raise RegraNegocioError(f"{amigo.nome} já está na sua lista de amigos.")
+
+        AmizadeRepository.criar_vinculo_bidirecional(db, usuario_id, amigo.id)
+        return amigo
+
+    @staticmethod
+    def listar_amigos(db: Session, usuario_id: int) -> List[models.Usuario]:
+        UsuarioService.obter_usuario(db, usuario_id)
+        return AmizadeRepository.listar_amigos(db, usuario_id)
+
+    @staticmethod
+    def sao_amigos(db: Session, usuario_id: int, amigo_id: int) -> bool:
+        return AmizadeRepository.buscar_vinculo(db, usuario_id, amigo_id) is not None
+
+    @staticmethod
+    def remover_amigo(db: Session, usuario_id: int, amigo_id: int) -> None:
+        UsuarioService.obter_usuario(db, usuario_id)
+        UsuarioService.obter_usuario(db, amigo_id)
+        AmizadeRepository.remover_vinculo_bidirecional(db, usuario_id, amigo_id)
+
+
+# SERVIÇO DE GRUPOS E MORADORES (RF1 e RF7)
 class GrupoService:
     @staticmethod
     def _formatar_resposta(grupo: models.Grupo) -> schemas.GrupoResponse:
@@ -69,7 +111,15 @@ class GrupoService:
 
     @staticmethod
     def criar_grupo(db: Session, dados: schemas.GrupoCreate) -> schemas.GrupoResponse:
+        if dados.criador_id is not None:
+            UsuarioService.obter_usuario(db, dados.criador_id)
+
         grupo = GrupoRepository.criar(db, dados.nome)
+
+        if dados.criador_id is not None:
+            GrupoRepository.adicionar_membro(db, grupo.id, dados.criador_id)
+            db.refresh(grupo)
+
         return GrupoService._formatar_resposta(grupo)
 
     @staticmethod
@@ -90,9 +140,20 @@ class GrupoService:
         return [GrupoService._formatar_resposta(g) for g in grupos]
 
     @staticmethod
-    def adicionar_membro(db: Session, grupo_id: int, usuario_id: int) -> schemas.GrupoResponse:
+    def adicionar_membro(
+        db: Session,
+        grupo_id: int,
+        usuario_id: int,
+        solicitante_id: Optional[int] = None,
+    ) -> schemas.GrupoResponse:
         grupo = GrupoService.obter_grupo_model(db, grupo_id)
         UsuarioService.obter_usuario(db, usuario_id)
+
+        if solicitante_id is not None and solicitante_id != usuario_id:
+            if not AmizadeService.sao_amigos(db, solicitante_id, usuario_id):
+                raise RegraNegocioError(
+                    "Você só pode adicionar ao grupo usuários que estejam na sua lista de amigos."
+                )
 
         if GrupoRepository.buscar_vinculo_membro(db, grupo_id, usuario_id):
             raise RegraNegocioError("Este usuário já faz parte do grupo.")
@@ -115,7 +176,7 @@ class GrupoService:
         GrupoRepository.deletar(db, grupo)
 
 
-# SERVIÇO DE DESPESAS, DIVISÃO E SIMPLIFICAÇÃO DE DÍVIDAS (RF2, RF3, RF4, RF5, RF6)
+# SERVIÇO DE DESPESAS, PENDÊNCIAS, EXTRATO E SIMPLIFICAÇÃO (RF2 a RF9)
 class DespesaService:
     @staticmethod
     def _calcular_divisoes(
@@ -125,7 +186,12 @@ class DespesaService:
         if not membros_ids:
             raise RegraNegocioError("O grupo não possui moradores cadastrados para dividir a despesa.")
 
-        if dados.pagador_id not in membros_ids:
+        if dados.status == schemas.StatusDespesa.PAGA:
+            if dados.pagador_id is None:
+                raise RegraNegocioError("Informe quem pagou a despesa ou marque o status como PENDENTE.")
+            if dados.pagador_id not in membros_ids:
+                raise RegraNegocioError("O usuário pagador precisa ser um membro do grupo.")
+        elif dados.pagador_id is not None and dados.pagador_id not in membros_ids:
             raise RegraNegocioError("O usuário pagador precisa ser um membro do grupo.")
 
         divisoes_models: List[models.Divisao] = []
@@ -150,7 +216,6 @@ class DespesaService:
             acumulado = 0.0
 
             for i, uid in enumerate(participantes):
-                # Ajusta eventual diferença de centavos no último participante
                 if i == qtd - 1:
                     valor_final = round(dados.valor_total - acumulado, 2)
                 else:
@@ -234,16 +299,40 @@ class DespesaService:
 
         divisoes_models = DespesaService._calcular_divisoes(dados, membros_ids)
 
+        pagador_id = (
+            dados.pagador_id
+            if dados.status == schemas.StatusDespesa.PAGA
+            else None
+        )
+
         nova_despesa = models.Despesa(
             descricao=dados.descricao,
             valor_total=round(dados.valor_total, 2),
             dia_compra=dados.dia_compra or date.today(),
             dia_vencimento=dados.dia_vencimento,
+            status=dados.status.value,
             grupo_id=dados.grupo_id,
-            pagador_id=dados.pagador_id,
+            pagador_id=pagador_id,
         )
 
         return DespesaRepository.criar_com_divisoes(db, nova_despesa, divisoes_models)
+
+    @staticmethod
+    def quitar_despesa_pendente(
+        db: Session, despesa_id: int, pagador_id: int
+    ) -> models.Despesa:
+        despesa = DespesaRepository.buscar_por_id(db, despesa_id)
+        if not despesa:
+            raise RecursoNaoEncontradoError(f"Despesa com ID {despesa_id} não encontrada.")
+
+        if despesa.status == schemas.StatusDespesa.PAGA.value:
+            raise RegraNegocioError("Esta despesa já consta como paga.")
+
+        membros_ids = [m.usuario_id for m in despesa.grupo.membros]
+        if pagador_id not in membros_ids:
+            raise RegraNegocioError("O usuário pagador precisa ser um membro do grupo.")
+
+        return DespesaRepository.marcar_como_paga(db, despesa, pagador_id)
 
     @staticmethod
     def listar_despesas_grupo(db: Session, grupo_id: int) -> List[models.Despesa]:
@@ -268,10 +357,6 @@ class DespesaService:
 
     @staticmethod
     def calcular_resumo_financeiro(db: Session, grupo_id: int) -> schemas.ResumoFinanceiroGrupo:
-        """
-        Calcula o extrato acumulado (RF4), simplifica as dívidas cruzadas (RF5)
-        e anexa a chave PIX dos credores para quitação rápida (RF6).
-        """
         grupo = GrupoService.obter_grupo_model(db, grupo_id)
         despesas = DespesaRepository.listar_por_grupo(db, grupo_id)
 
@@ -282,7 +367,13 @@ class DespesaService:
         total_devido: Dict[int, float] = {uid: 0.0 for uid in usuarios_map}
 
         total_despesas_grupo = 0.0
+        total_pendente_grupo = 0.0
+
         for despesa in despesas:
+            if despesa.status == schemas.StatusDespesa.PENDENTE.value:
+                total_pendente_grupo += despesa.valor_total
+                continue
+
             total_despesas_grupo += despesa.valor_total
             if despesa.pagador_id in total_pago:
                 total_pago[despesa.pagador_id] += despesa.valor_total
@@ -292,8 +383,8 @@ class DespesaService:
                     total_devido[div.usuario_id] += div.valor_devido
 
         saldos: List[schemas.SaldoUsuario] = []
-        devedores = []  # [usuario_id, nome, valor_a_pagar]
-        credores = []   # [usuario_id, nome, chave_pix, valor_a_receber]
+        devedores = []
+        credores = []
 
         for uid, usuario in usuarios_map.items():
             pago = round(total_pago[uid], 2)
@@ -315,7 +406,6 @@ class DespesaService:
             elif liquido > 0.009:
                 credores.append([uid, usuario.nome, usuario.chave_pix, liquido])
 
-        # Algoritmo Guloso de Simplificação de Dívidas (RF5)
         acertos: List[schemas.SugestaoAcerto] = []
         while devedores and credores:
             devedores.sort(key=lambda x: x[2], reverse=True)
@@ -332,7 +422,7 @@ class DespesaService:
                     devedor_nome=maior_devedor[1],
                     credor_id=maior_credor[0],
                     credor_nome=maior_credor[1],
-                    credor_chave_pix=maior_credor[2],  # RF6: Chave PIX do credor
+                    credor_chave_pix=maior_credor[2],
                     valor=valor_transferencia,
                 )
             )
@@ -349,6 +439,91 @@ class DespesaService:
             grupo_id=grupo.id,
             grupo_nome=grupo.nome,
             total_despesas_grupo=round(total_despesas_grupo, 2),
+            total_pendente_grupo=round(total_pendente_grupo, 2),
             saldos=saldos,
             acertos_simplificados=acertos,
+        )
+
+    @staticmethod
+    def gerar_extrato_membro(
+        db: Session, grupo_id: int, usuario_id: int
+    ) -> schemas.ExtratoMembroGrupo:
+        """
+        RF9: Gera o extrato individualizado de um membro em um grupo, detalhando
+        quanto ele deve em cada despesa, quem pagou e o que ainda está pendente.
+        """
+        grupo = GrupoService.obter_grupo_model(db, grupo_id)
+        usuario = UsuarioService.obter_usuario(db, usuario_id)
+
+        membros_map: Dict[int, models.Usuario] = {
+            m.usuario.id: m.usuario for m in grupo.membros
+        }
+        if usuario_id not in membros_map:
+            raise RegraNegocioError("Este usuário não participa do grupo selecionado.")
+
+        despesas = DespesaRepository.listar_por_grupo(db, grupo_id)
+
+        itens: List[schemas.ItemExtratoMembro] = []
+        total_pago_por_mim = 0.0
+        total_minhas_cotas_pagas = 0.0
+        total_pendente_a_pagar = 0.0
+
+        for despesa in despesas:
+            minha_div = next(
+                (d for d in despesa.divisoes if d.usuario_id == usuario_id), None
+            )
+            eu_paguei = (
+                despesa.status == schemas.StatusDespesa.PAGA.value
+                and despesa.pagador_id == usuario_id
+            )
+
+            if not minha_div and not eu_paguei:
+                continue
+
+            minha_cota = round(minha_div.valor_devido, 2) if minha_div else 0.0
+            percentual = minha_div.percentual if minha_div else 0.0
+
+            pagador_nome: Optional[str] = None
+            if despesa.pagador_id is not None:
+                pag_obj = membros_map.get(despesa.pagador_id)
+                pagador_nome = pag_obj.nome if pag_obj else f"Usuário #{despesa.pagador_id}"
+
+            if despesa.status == schemas.StatusDespesa.PAGA.value:
+                valor_pago_nesta = despesa.valor_total if eu_paguei else 0.0
+                saldo_item = round(valor_pago_nesta - minha_cota, 2)
+                total_pago_por_mim = round(total_pago_por_mim + valor_pago_nesta, 2)
+                total_minhas_cotas_pagas = round(total_minhas_cotas_pagas + minha_cota, 2)
+            else:
+                saldo_item = round(-minha_cota, 2)
+                total_pendente_a_pagar = round(total_pendente_a_pagar + minha_cota, 2)
+
+            itens.append(
+                schemas.ItemExtratoMembro(
+                    despesa_id=despesa.id,
+                    descricao=despesa.descricao,
+                    dia_compra=despesa.dia_compra,
+                    dia_vencimento=despesa.dia_vencimento,
+                    status=despesa.status,
+                    valor_total_despesa=despesa.valor_total,
+                    pagador_id=despesa.pagador_id,
+                    pagador_nome=pagador_nome,
+                    minha_cota=minha_cota,
+                    percentual=percentual,
+                    eu_paguei=eu_paguei,
+                    saldo_na_despesa=saldo_item,
+                )
+            )
+
+        saldo_liquido = round(total_pago_por_mim - total_minhas_cotas_pagas, 2)
+
+        return schemas.ExtratoMembroGrupo(
+            grupo_id=grupo.id,
+            grupo_nome=grupo.nome,
+            usuario_id=usuario.id,
+            usuario_nome=usuario.nome,
+            total_pago_por_mim=total_pago_por_mim,
+            total_minhas_cotas_pagas=total_minhas_cotas_pagas,
+            total_pendente_a_pagar=total_pendente_a_pagar,
+            saldo_liquido_atual=saldo_liquido,
+            itens=itens,
         )

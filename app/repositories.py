@@ -10,7 +10,6 @@ class UsuarioRepository:
             nome=dados.nome,
             telefone=dados.telefone,
             email=dados.email,
-            cpf=dados.cpf,
             senha_hash=senha_hash,
             chave_pix=dados.chave_pix,
         )
@@ -26,10 +25,6 @@ class UsuarioRepository:
     @staticmethod
     def buscar_por_email(db: Session, email: str) -> Optional[models.Usuario]:
         return db.query(models.Usuario).filter(models.Usuario.email == email).first()
-
-    @staticmethod
-    def buscar_por_cpf(db: Session, cpf: str) -> Optional[models.Usuario]:
-        return db.query(models.Usuario).filter(models.Usuario.cpf == cpf).first()
 
     @staticmethod
     def listar_todos(db: Session) -> List[models.Usuario]:
@@ -50,6 +45,46 @@ class UsuarioRepository:
     @staticmethod
     def deletar(db: Session, usuario: models.Usuario) -> None:
         db.delete(usuario)
+        db.commit()
+
+
+class AmizadeRepository:
+    @staticmethod
+    def buscar_vinculo(db: Session, usuario_id: int, amigo_id: int) -> Optional[models.Amizade]:
+        return (
+            db.query(models.Amizade)
+            .filter(
+                models.Amizade.usuario_id == usuario_id,
+                models.Amizade.amigo_id == amigo_id,
+            )
+            .first()
+        )
+
+    @staticmethod
+    def criar_vinculo_bidirecional(db: Session, usuario_id: int, amigo_id: int) -> None:
+        if not AmizadeRepository.buscar_vinculo(db, usuario_id, amigo_id):
+            db.add(models.Amizade(usuario_id=usuario_id, amigo_id=amigo_id))
+        if not AmizadeRepository.buscar_vinculo(db, amigo_id, usuario_id):
+            db.add(models.Amizade(usuario_id=amigo_id, amigo_id=usuario_id))
+        db.commit()
+
+    @staticmethod
+    def listar_amigos(db: Session, usuario_id: int) -> List[models.Usuario]:
+        vinculos = (
+            db.query(models.Amizade)
+            .filter(models.Amizade.usuario_id == usuario_id)
+            .all()
+        )
+        return [v.amigo for v in vinculos]
+
+    @staticmethod
+    def remover_vinculo_bidirecional(db: Session, usuario_id: int, amigo_id: int) -> None:
+        v1 = AmizadeRepository.buscar_vinculo(db, usuario_id, amigo_id)
+        v2 = AmizadeRepository.buscar_vinculo(db, amigo_id, usuario_id)
+        if v1:
+            db.delete(v1)
+        if v2:
+            db.delete(v2)
         db.commit()
 
 
@@ -114,13 +149,9 @@ class DespesaRepository:
         despesa: models.Despesa,
         divisoes: List[models.Divisao],
     ) -> models.Despesa:
-        """
-        Salva a despesa e todas as suas divisões em uma única transação atômica.
-        Se qualquer falha ocorrer, desfaz tudo (rollback) garantindo integridade dos dados.
-        """
         try:
             db.add(despesa)
-            db.flush()  # Gera o despesa.id antes de finalizar a transação
+            db.flush()
             for div in divisoes:
                 div.despesa_id = despesa.id
                 db.add(div)
@@ -145,6 +176,14 @@ class DespesaRepository:
             despesa.descricao = dados.descricao
         if dados.dia_vencimento is not None:
             despesa.dia_vencimento = dados.dia_vencimento
+        db.commit()
+        db.refresh(despesa)
+        return despesa
+
+    @staticmethod
+    def marcar_como_paga(db: Session, despesa: models.Despesa, pagador_id: int) -> models.Despesa:
+        despesa.status = schemas.StatusDespesa.PAGA.value
+        despesa.pagador_id = pagador_id
         db.commit()
         db.refresh(despesa)
         return despesa

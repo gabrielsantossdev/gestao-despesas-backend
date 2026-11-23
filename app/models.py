@@ -11,13 +11,27 @@ class Usuario(Base):
     nome = Column(String(100), nullable=False)
     telefone = Column(String(20), nullable=False)
     email = Column(String(120), unique=True, index=True, nullable=False)
-    cpf = Column(String(14), unique=True, nullable=False)
     senha_hash = Column(String(255), nullable=False)
-    chave_pix = Column(String(120), nullable=False)  # Atende ao RF6 (Central de Acerto com PIX)
+    chave_pix = Column(String(120), nullable=False)  # RF6: Central de Acerto com PIX
 
     grupos_associados = relationship("GrupoMembro", back_populates="usuario", cascade="all, delete-orphan")
     despesas_pagas = relationship("Despesa", back_populates="pagador")
     divisoes = relationship("Divisao", back_populates="usuario")
+
+
+class Amizade(Base):
+    __tablename__ = "amizades"
+    __table_args__ = (
+        UniqueConstraint("usuario_id", "amigo_id", name="uq_usuario_amigo"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), index=True, nullable=False)
+    amigo_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), index=True, nullable=False)
+    criado_em = Column(DateTime, default=datetime.utcnow)
+
+    usuario = relationship("Usuario", foreign_keys=[usuario_id])
+    amigo = relationship("Usuario", foreign_keys=[amigo_id])
 
 
 class Grupo(Base):
@@ -53,8 +67,9 @@ class Despesa(Base):
     valor_total = Column(Float, nullable=False)
     dia_compra = Column(Date, default=date.today, nullable=False)
     dia_vencimento = Column(Date, nullable=True)
+    status = Column(String(20), default="PAGA", nullable=False)  # PAGA ou PENDENTE (RF8)
     grupo_id = Column(Integer, ForeignKey("grupos.id", ondelete="CASCADE"), index=True, nullable=False)
-    pagador_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
+    pagador_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=True)
 
     grupo = relationship("Grupo", back_populates="despesas")
     pagador = relationship("Usuario", back_populates="despesas_pagas")
