@@ -67,9 +67,8 @@ class Despesa(Base):
     valor_total = Column(Float, nullable=False)
     dia_compra = Column(Date, default=date.today, nullable=False)
     dia_vencimento = Column(Date, nullable=True)
-    status = Column(String(20), default="PAGA", nullable=False)  # PAGA ou PENDENTE (RF8)
     grupo_id = Column(Integer, ForeignKey("grupos.id", ondelete="CASCADE"), index=True, nullable=False)
-    pagador_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=True)
+    pagador_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
 
     grupo = relationship("Grupo", back_populates="despesas")
     pagador = relationship("Usuario", back_populates="despesas_pagas")

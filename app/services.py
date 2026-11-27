@@ -56,7 +56,7 @@ class UsuarioService:
         UsuarioRepository.deletar(db, usuario)
 
 
-# SERVIÇO DE AMIZADES (RF7)
+# SERVIÇO DE AMIZADES (RF8)
 class AmizadeService:
     @staticmethod
     def adicionar_amigo(db: Session, usuario_id: int, dados: schemas.AmigoAdd) -> models.Usuario:
@@ -97,7 +97,7 @@ class AmizadeService:
         AmizadeRepository.remover_vinculo_bidirecional(db, usuario_id, amigo_id)
 
 
-# SERVIÇO DE GRUPOS E MORADORES (RF1 e RF7)
+# SERVIÇO DE GRUPOS E MORADORES (RF1 e RF8)
 class GrupoService:
     @staticmethod
     def _formatar_resposta(grupo: models.Grupo) -> schemas.GrupoResponse:
@@ -176,7 +176,7 @@ class GrupoService:
         GrupoRepository.deletar(db, grupo)
 
 
-# SERVIÇO DE DESPESAS, PENDÊNCIAS, EXTRATO E SIMPLIFICAÇÃO (RF2 a RF9)
+# SERVIÇO DE DESPESAS, EXTRATO E SIMPLIFICAÇÃO (RF2 a RF6, RF10)
 class DespesaService:
     @staticmethod
     def _calcular_divisoes(
@@ -186,12 +186,7 @@ class DespesaService:
         if not membros_ids:
             raise RegraNegocioError("O grupo não possui moradores cadastrados para dividir a despesa.")
 
-        if dados.status == schemas.StatusDespesa.PAGA:
-            if dados.pagador_id is None:
-                raise RegraNegocioError("Informe quem pagou a despesa ou marque o status como PENDENTE.")
-            if dados.pagador_id not in membros_ids:
-                raise RegraNegocioError("O usuário pagador precisa ser um membro do grupo.")
-        elif dados.pagador_id is not None and dados.pagador_id not in membros_ids:
+        if dados.pagador_id not in membros_ids:
             raise RegraNegocioError("O usuário pagador precisa ser um membro do grupo.")
 
         divisoes_models: List[models.Divisao] = []
@@ -299,40 +294,16 @@ class DespesaService:
 
         divisoes_models = DespesaService._calcular_divisoes(dados, membros_ids)
 
-        pagador_id = (
-            dados.pagador_id
-            if dados.status == schemas.StatusDespesa.PAGA
-            else None
-        )
-
         nova_despesa = models.Despesa(
             descricao=dados.descricao,
             valor_total=round(dados.valor_total, 2),
             dia_compra=dados.dia_compra or date.today(),
             dia_vencimento=dados.dia_vencimento,
-            status=dados.status.value,
             grupo_id=dados.grupo_id,
-            pagador_id=pagador_id,
+            pagador_id=dados.pagador_id,
         )
 
         return DespesaRepository.criar_com_divisoes(db, nova_despesa, divisoes_models)
-
-    @staticmethod
-    def quitar_despesa_pendente(
-        db: Session, despesa_id: int, pagador_id: int
-    ) -> models.Despesa:
-        despesa = DespesaRepository.buscar_por_id(db, despesa_id)
-        if not despesa:
-            raise RecursoNaoEncontradoError(f"Despesa com ID {despesa_id} não encontrada.")
-
-        if despesa.status == schemas.StatusDespesa.PAGA.value:
-            raise RegraNegocioError("Esta despesa já consta como paga.")
-
-        membros_ids = [m.usuario_id for m in despesa.grupo.membros]
-        if pagador_id not in membros_ids:
-            raise RegraNegocioError("O usuário pagador precisa ser um membro do grupo.")
-
-        return DespesaRepository.marcar_como_paga(db, despesa, pagador_id)
 
     @staticmethod
     def listar_despesas_grupo(db: Session, grupo_id: int) -> List[models.Despesa]:
@@ -367,13 +338,8 @@ class DespesaService:
         total_devido: Dict[int, float] = {uid: 0.0 for uid in usuarios_map}
 
         total_despesas_grupo = 0.0
-        total_pendente_grupo = 0.0
 
         for despesa in despesas:
-            if despesa.status == schemas.StatusDespesa.PENDENTE.value:
-                total_pendente_grupo += despesa.valor_total
-                continue
-
             total_despesas_grupo += despesa.valor_total
             if despesa.pagador_id in total_pago:
                 total_pago[despesa.pagador_id] += despesa.valor_total
@@ -439,7 +405,6 @@ class DespesaService:
             grupo_id=grupo.id,
             grupo_nome=grupo.nome,
             total_despesas_grupo=round(total_despesas_grupo, 2),
-            total_pendente_grupo=round(total_pendente_grupo, 2),
             saldos=saldos,
             acertos_simplificados=acertos,
         )
@@ -449,8 +414,8 @@ class DespesaService:
         db: Session, grupo_id: int, usuario_id: int
     ) -> schemas.ExtratoMembroGrupo:
         """
-        RF9: Gera o extrato individualizado de um membro em um grupo, detalhando
-        quanto ele deve em cada despesa, quem pagou e o que ainda está pendente.
+        RF10: Gera o extrato individualizado de um membro em um grupo, detalhando
+        quanto ele deve em cada despesa e quem efetuou o pagamento.
         """
         grupo = GrupoService.obter_grupo_model(db, grupo_id)
         usuario = UsuarioService.obter_usuario(db, usuario_id)
@@ -466,16 +431,12 @@ class DespesaService:
         itens: List[schemas.ItemExtratoMembro] = []
         total_pago_por_mim = 0.0
         total_minhas_cotas_pagas = 0.0
-        total_pendente_a_pagar = 0.0
 
         for despesa in despesas:
             minha_div = next(
                 (d for d in despesa.divisoes if d.usuario_id == usuario_id), None
             )
-            eu_paguei = (
-                despesa.status == schemas.StatusDespesa.PAGA.value
-                and despesa.pagador_id == usuario_id
-            )
+            eu_paguei = despesa.pagador_id == usuario_id
 
             if not minha_div and not eu_paguei:
                 continue
@@ -483,19 +444,13 @@ class DespesaService:
             minha_cota = round(minha_div.valor_devido, 2) if minha_div else 0.0
             percentual = minha_div.percentual if minha_div else 0.0
 
-            pagador_nome: Optional[str] = None
-            if despesa.pagador_id is not None:
-                pag_obj = membros_map.get(despesa.pagador_id)
-                pagador_nome = pag_obj.nome if pag_obj else f"Usuário #{despesa.pagador_id}"
+            pag_obj = membros_map.get(despesa.pagador_id)
+            pagador_nome = pag_obj.nome if pag_obj else f"Usuário #{despesa.pagador_id}"
 
-            if despesa.status == schemas.StatusDespesa.PAGA.value:
-                valor_pago_nesta = despesa.valor_total if eu_paguei else 0.0
-                saldo_item = round(valor_pago_nesta - minha_cota, 2)
-                total_pago_por_mim = round(total_pago_por_mim + valor_pago_nesta, 2)
-                total_minhas_cotas_pagas = round(total_minhas_cotas_pagas + minha_cota, 2)
-            else:
-                saldo_item = round(-minha_cota, 2)
-                total_pendente_a_pagar = round(total_pendente_a_pagar + minha_cota, 2)
+            valor_pago_nesta = despesa.valor_total if eu_paguei else 0.0
+            saldo_item = round(valor_pago_nesta - minha_cota, 2)
+            total_pago_por_mim = round(total_pago_por_mim + valor_pago_nesta, 2)
+            total_minhas_cotas_pagas = round(total_minhas_cotas_pagas + minha_cota, 2)
 
             itens.append(
                 schemas.ItemExtratoMembro(
@@ -503,7 +458,6 @@ class DespesaService:
                     descricao=despesa.descricao,
                     dia_compra=despesa.dia_compra,
                     dia_vencimento=despesa.dia_vencimento,
-                    status=despesa.status,
                     valor_total_despesa=despesa.valor_total,
                     pagador_id=despesa.pagador_id,
                     pagador_nome=pagador_nome,
@@ -523,7 +477,6 @@ class DespesaService:
             usuario_nome=usuario.nome,
             total_pago_por_mim=total_pago_por_mim,
             total_minhas_cotas_pagas=total_minhas_cotas_pagas,
-            total_pendente_a_pagar=total_pendente_a_pagar,
             saldo_liquido_atual=saldo_liquido,
             itens=itens,
         )
