@@ -126,33 +126,23 @@
                 <label>Valor Total (R$)
                   <input type="number" id="d-valor" step="0.01" min="0.01" placeholder="150,00" required />
                 </label>
-                <label>Situação do Pagamento
-                  <select id="d-status">
-                    <option value="PAGA">Já foi paga</option>
-                    <option value="PENDENTE">Pendente / A pagar (ninguém pagou)</option>
-                  </select>
+                <label id="wrap-pagador">Quem Pagou?
+                  <select id="d-pagador" required></select>
                 </label>
               </div>
 
               <div class="row-2">
-                <label id="wrap-pagador">Quem Pagou?
-                  <select id="d-pagador"></select>
-                </label>
-                <label id="wrap-responsavel-pix" class="hidden">Responsável pelo PIX
-                  <select id="d-responsavel-pix"></select>
-                </label>
-                <label>Data (Compra / Vencimento)
+                <label>Data da Despesa
                   <input type="date" id="d-compra" />
                 </label>
+                <label>Tipo de Divisão
+                  <select id="d-tipo">
+                    <option value="IGUAL">Igualitária (selecionar participantes)</option>
+                    <option value="EXATA">Valores Exatos (R$)</option>
+                    <option value="PORCENTAGEM">Porcentagem (%)</option>
+                  </select>
+                </label>
               </div>
-
-              <label>Tipo de Divisão
-                <select id="d-tipo">
-                  <option value="IGUAL">Igualitária (selecionar participantes)</option>
-                  <option value="EXATA">Valores Exatos (R$)</option>
-                  <option value="PORCENTAGEM">Porcentagem (%)</option>
-                </select>
-              </label>
 
               <div id="box-divisao-custom" class="custom-split hidden"></div>
 
@@ -174,10 +164,7 @@
           <div class="card">
             <div class="card-header">
               <h2>Saldo & Acerto de Contas</h2>
-              <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                <span id="total-grupo-badge" class="badge">Pago: R$ 0,00</span>
-                <span id="total-pendente-badge" class="badge badge-warn">Pendente: R$ 0,00</span>
-              </div>
+              <span id="total-grupo-badge" class="badge">Total: R$ 0,00</span>
             </div>
             <div id="resumo-saldos" class="stack-sm"></div>
             <h3>Transferências Sugeridas (PIX)</h3>
@@ -185,12 +172,7 @@
           </div>
 
           <div class="card">
-            <h2>Contas Pendentes (A Pagar)</h2>
-            <div id="lista-pendentes" class="stack-sm"></div>
-          </div>
-
-          <div class="card">
-            <h2>Histórico de Despesas Pagas</h2>
+            <h2>Histórico de Despesas</h2>
             <div id="lista-despesas" class="stack-sm"></div>
           </div>
 

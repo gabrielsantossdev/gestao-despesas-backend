@@ -1,5 +1,4 @@
 const API_URL = window.location.port === "8000" ? "" : "http://127.0.0.1:8000";
-const STORAGE_RESP_PIX = "rateio_facil_resp_pix";
 
 let usuarioLogado = null;
 let meusAmigosCache = [];
@@ -7,24 +6,6 @@ let gruposCache = [];
 
 function getUsuarioAtivoId() {
   return usuarioLogado ? usuarioLogado.id : null;
-}
-
-function getResponsaveisPixMap() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_RESP_PIX) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function salvarResponsavelPix(despesaId, usuarioId) {
-  const mapa = getResponsaveisPixMap();
-  if (usuarioId) {
-    mapa[String(despesaId)] = Number(usuarioId);
-  } else {
-    delete mapa[String(despesaId)];
-  }
-  localStorage.setItem(STORAGE_RESP_PIX, JSON.stringify(mapa));
 }
 
 function isLancamentoAcertoPix(descricao) {
@@ -289,24 +270,10 @@ document.getElementById("form-membro").addEventListener("submit", async (e) => {
   }
 });
 
-// ABA 3: DESPESAS, PENDÊNCIAS, EXTRATO INDIVIDUAL E ACERTO PIX
+// ABA 3: DESPESAS, EXTRATO INDIVIDUAL E ACERTO PIX
 function getGrupoAtivoObj() {
   const id = Number(document.getElementById("d-grupo-ativo").value);
   return gruposCache.find((g) => g.id === id) || null;
-}
-
-function alternarVisibilidadePagador() {
-  const statusVal = document.getElementById("d-status").value;
-  const wrapPagador = document.getElementById("wrap-pagador");
-  const wrapRespPix = document.getElementById("wrap-responsavel-pix");
-
-  if (statusVal === "PENDENTE") {
-    wrapPagador.classList.add("hidden");
-    wrapRespPix.classList.remove("hidden");
-  } else {
-    wrapPagador.classList.remove("hidden");
-    wrapRespPix.classList.add("hidden");
-  }
 }
 
 function renderizarCamposDivisao() {
@@ -381,7 +348,6 @@ async function registrarPagamentoPix(devedorId, credorId, valor) {
       body: JSON.stringify({
         descricao,
         valor_total: Number(valor),
-        status: "PAGA",
         grupo_id: grupo.id,
         pagador_id: devedorId,
         tipo_divisao: "EXATA",
@@ -398,27 +364,20 @@ async function registrarPagamentoPix(devedorId, credorId, valor) {
 async function atualizarPainelDespesas() {
   const grupo = getGrupoAtivoObj();
   const selPagador = document.getElementById("d-pagador");
-  const selRespPix = document.getElementById("d-responsavel-pix");
 
   if (!grupo) {
     selPagador.innerHTML = "";
-    selRespPix.innerHTML = "";
     document.getElementById("lista-despesas").innerHTML = "<p>Crie um grupo primeiro.</p>";
-    document.getElementById("lista-pendentes").innerHTML = "";
     document.getElementById("lista-extrato-membro").innerHTML = "";
     return;
   }
 
-  const optionsMembros = grupo.membros
+  selPagador.innerHTML = grupo.membros
     .map((m) => `<option value="${m.id}">${m.nome}</option>`)
     .join("");
 
-  selPagador.innerHTML = optionsMembros;
-  selRespPix.innerHTML = optionsMembros;
-
   if (usuarioLogado && grupo.membros.some((m) => m.id === usuarioLogado.id)) {
     selPagador.value = String(usuarioLogado.id);
-    selRespPix.value = String(usuarioLogado.id);
   }
   renderizarCamposDivisao();
 
@@ -428,35 +387,31 @@ async function atualizarPainelDespesas() {
       apiFetch(`/grupos/${grupo.id}/resumo`),
     ]);
 
-    const pendentes = despesas.filter((d) => d.status === "PENDENTE");
-    const pagas = despesas.filter((d) => d.status !== "PENDENTE");
-    const despesasReaisPagas = pagas.filter((d) => !isLancamentoAcertoPix(d.descricao));
-    const acertosPixPagos = pagas.filter((d) => isLancamentoAcertoPix(d.descricao));
+    const despesasReais = despesas.filter((d) => !isLancamentoAcertoPix(d.descricao));
+    const acertosPix = despesas.filter((d) => isLancamentoAcertoPix(d.descricao));
 
-    const totalRealPagoGrupo = despesasReaisPagas.reduce(
+    const totalRealGrupo = despesasReais.reduce(
       (acc, d) => acc + Number(d.valor_total || 0),
       0
     );
 
     document.getElementById("total-grupo-badge").textContent =
-      `Pago: ${formatarMoeda(totalRealPagoGrupo)}`;
-    document.getElementById("total-pendente-badge").textContent =
-      `Pendente: ${formatarMoeda(resumo.total_pendente_grupo)}`;
+      `Total: ${formatarMoeda(totalRealGrupo)}`;
 
     // Saldos acumulados separando gasto real de acerto PIX
     document.getElementById("resumo-saldos").innerHTML = resumo.saldos
       .map((s) => {
         const status = formatarStatusSaldo(s.saldo_liquido);
-        const pagoReal = despesasReaisPagas
+        const pagoReal = despesasReais
           .filter((d) => d.pagador_id === s.usuario_id)
           .reduce((acc, d) => acc + Number(d.valor_total || 0), 0);
 
-        const pixEnviado = acertosPixPagos
+        const pixEnviado = acertosPix
           .filter((d) => d.pagador_id === s.usuario_id)
           .reduce((acc, d) => acc + Number(d.valor_total || 0), 0);
 
         let pixRecebidoExato = 0;
-        acertosPixPagos.forEach((d) => {
+        acertosPix.forEach((d) => {
           if (Array.isArray(d.divisoes)) {
             d.divisoes.forEach((div) => {
               if (div.usuario_id === s.usuario_id) {
@@ -506,61 +461,9 @@ async function atualizarPainelDespesas() {
           .join("")
       : `<p style="color:#64748b; font-size:0.9rem;">Tudo acertado! Nenhuma transferência pendente.</p>`;
 
-    // Despesas PENDENTES
-    const mapaRespPix = getResponsaveisPixMap();
-
-    document.getElementById("lista-pendentes").innerHTML = pendentes.length
-      ? pendentes
-          .map((d) => {
-            const respId = mapaRespPix[String(d.id)] || null;
-            const respMembro =
-              (respId && grupo.membros.find((m) => m.id === respId)) ||
-              (usuarioLogado && grupo.membros.find((m) => m.id === usuarioLogado.id)) ||
-              grupo.membros[0] ||
-              null;
-
-            const pagadorDefault = respMembro ? respMembro.id : grupo.membros[0]?.id;
-
-            const opcoesMembros = grupo.membros
-              .map(
-                (m) =>
-                  `<option value="${m.id}" ${m.id === pagadorDefault ? "selected" : ""}>${m.nome}</option>`
-              )
-              .join("");
-
-            const blocoPixResponsavel = respMembro
-              ? `<div class="pix-row" style="margin-top:8px;">
-                  <span>Responsável pelo PIX: <strong>${respMembro.nome}</strong> • <code>${respMembro.chave_pix}</code></span>
-                  <button type="button" class="btn-outline" data-pix="${respMembro.chave_pix}" onclick="copiarChavePix(this)">Copiar PIX</button>
-                </div>`
-              : "";
-
-            return `<div class="item-box item-pendente">
-              <div class="item-top">
-                <div>
-                  <strong>${d.descricao}</strong> — ${formatarMoeda(d.valor_total)}
-                  <div style="font-size:0.82rem; color:#92400e;">Vencimento / Data: ${formatarDataBR(d.dia_compra)}</div>
-                </div>
-                <button type="button" class="btn-danger" onclick="excluirDespesa(${d.id}, false)">Excluir</button>
-              </div>
-              ${blocoPixResponsavel}
-              <div class="pend-actions">
-                <button type="button" class="btn-success-sm" onclick="quitarColetivamente(${d.id})">Quitada (Todos pagaram)</button>
-                <div class="pend-reembolso-box">
-                  <select id="pagador-pend-${d.id}" class="select-compact" title="Quem pagou a conta sozinho?">
-                    ${opcoesMembros}
-                  </select>
-                  <button type="button" class="btn-warn" onclick="quitarDespesa(${d.id})">Pago por este membro</button>
-                </div>
-              </div>
-            </div>`;
-          })
-          .join("")
-      : `<p style="color:#64748b; font-size:0.9rem;">Nenhuma conta pendente de pagamento.</p>`;
-
-    // Histórico apenas das despesas reais pagas
-    document.getElementById("lista-despesas").innerHTML = despesasReaisPagas.length
-      ? despesasReaisPagas
+    // Histórico das despesas do grupo
+    document.getElementById("lista-despesas").innerHTML = despesasReais.length
+      ? despesasReais
           .map((d) => {
             const pagador = grupo.membros.find((m) => m.id === d.pagador_id);
             return `<div class="item-box item-top">
@@ -574,15 +477,15 @@ async function atualizarPainelDespesas() {
             </div>`;
           })
           .join("")
-      : `<p style="color:#64748b; font-size:0.9rem;">Nenhuma despesa paga registrada neste grupo.</p>`;
+      : `<p style="color:#64748b; font-size:0.9rem;">Nenhuma despesa registrada neste grupo.</p>`;
 
     // Card separado para os Acertos PIX já registrados
     const cardAcertosRealizados = document.getElementById("card-acertos-realizados");
     const listaAcertosRealizados = document.getElementById("lista-acertos-realizados");
 
-    if (acertosPixPagos.length) {
+    if (acertosPix.length) {
       cardAcertosRealizados.classList.remove("hidden");
-      listaAcertosRealizados.innerHTML = acertosPixPagos
+      listaAcertosRealizados.innerHTML = acertosPix
         .map((d) => {
           const pagador = grupo.membros.find((m) => m.id === d.pagador_id);
           return `<div class="item-box item-acerto item-top">
@@ -636,7 +539,7 @@ async function atualizarExtratoIndividual(grupo) {
       } else {
         pixRecebidos += Number(item.valor_total_despesa || 0);
       }
-    } else if (item.status !== "PENDENTE") {
+    } else {
       if (item.eu_paguei) {
         pagoDespesasReais += Number(item.valor_total_despesa || 0);
       }
@@ -654,8 +557,8 @@ async function atualizarExtratoIndividual(grupo) {
       <strong>${formatarMoeda(parteGastosReais)}</strong>
     </div>
     <div class="mini-stat">
-      <span>Em Aberto (Pendentes)</span>
-      <strong class="saldo-warn">${formatarMoeda(extrato.total_pendente_a_pagar)}</strong>
+      <span>Meu Saldo no Grupo</span>
+      <strong class="${saldoFinal.cls}">${saldoFinal.texto}</strong>
     </div>
   `;
 
@@ -671,7 +574,6 @@ async function atualizarExtratoIndividual(grupo) {
   listaBox.innerHTML = extrato.itens.length
     ? extrato.itens
         .map((item) => {
-          const isPendente = item.status === "PENDENTE";
           const isPix = isLancamentoAcertoPix(item.descricao);
 
           let detalhe = "";
@@ -691,12 +593,6 @@ async function atualizarExtratoIndividual(grupo) {
                 texto: `Recebido via PIX: ${formatarMoeda(item.valor_total_despesa)}`,
               };
             }
-          } else if (isPendente) {
-            detalhe = `Conta em aberto (total ${formatarMoeda(item.valor_total_despesa)}) • Sua parte: <strong>${formatarMoeda(item.minha_cota)}</strong>`;
-            statusItem = {
-              cls: "saldo-warn",
-              texto: `A pagar: ${formatarMoeda(item.minha_cota)}`,
-            };
           } else {
             detalhe = item.eu_paguei
               ? `Você pagou ${formatarMoeda(item.valor_total_despesa)} • Sua parte: ${formatarMoeda(item.minha_cota)}`
@@ -720,54 +616,18 @@ async function atualizarExtratoIndividual(grupo) {
     : `<p style="color:#64748b; font-size:0.88rem;">Nenhuma despesa vinculada a você neste grupo.</p>`;
 }
 
-// Quita a conta pendente sem gerar dívidas (todos juntaram e pagaram)
-async function quitarColetivamente(despesaId) {
-  try {
-    await apiFetch(`/despesas/${despesaId}`, { method: "DELETE" });
-    salvarResponsavelPix(despesaId, null);
-    mostrarAlerta("Conta marcada como quitada! Nenhuma dívida foi gerada entre os membros.");
-    await atualizarPainelDespesas();
-  } catch (err) {
-    mostrarAlerta(err.message, "erro");
-  }
-}
-
-// Quita a conta pendente em nome de um único pagador (gera reembolso)
-async function quitarDespesa(despesaId) {
-  const sel = document.getElementById(`pagador-pend-${despesaId}`);
-  const pagadorId = sel ? Number(sel.value) : null;
-  if (!pagadorId) {
-    mostrarAlerta("Selecione quem pagou a conta.", "erro");
-    return;
-  }
-  try {
-    await apiFetch(`/despesas/${despesaId}/pagar`, {
-      method: "PATCH",
-      body: JSON.stringify({ pagador_id: pagadorId }),
-    });
-    salvarResponsavelPix(despesaId, null);
-    mostrarAlerta("Despesa marcada como paga e rateada para reembolso!");
-    await atualizarPainelDespesas();
-  } catch (err) {
-    mostrarAlerta(err.message, "erro");
-  }
-}
-
 async function excluirDespesa(id, isAcerto = false) {
   try {
     await apiFetch(`/despesas/${id}`, { method: "DELETE" });
-    salvarResponsavelPix(id, null);
 
     if (!isAcerto) {
       const grupo = getGrupoAtivoObj();
       if (grupo) {
         const restantes = await apiFetch(`/despesas/grupo/${grupo.id}`);
-        const despesasReaisPagas = restantes.filter(
-          (d) => d.status !== "PENDENTE" && !isLancamentoAcertoPix(d.descricao)
-        );
+        const despesasReais = restantes.filter((d) => !isLancamentoAcertoPix(d.descricao));
         const acertosOrfaos = restantes.filter((d) => isLancamentoAcertoPix(d.descricao));
 
-        if (despesasReaisPagas.length === 0 && acertosOrfaos.length > 0) {
+        if (despesasReais.length === 0 && acertosOrfaos.length > 0) {
           await Promise.all(
             acertosOrfaos.map((a) => apiFetch(`/despesas/${a.id}`, { method: "DELETE" }))
           );
@@ -788,14 +648,12 @@ async function excluirDespesa(id, isAcerto = false) {
 
 document.getElementById("d-grupo-ativo").addEventListener("change", atualizarPainelDespesas);
 document.getElementById("d-tipo").addEventListener("change", renderizarCamposDivisao);
-document.getElementById("d-status").addEventListener("change", alternarVisibilidadePagador);
 
 document.getElementById("form-despesa").addEventListener("submit", async (e) => {
   e.preventDefault();
   const grupo = getGrupoAtivoObj();
   if (!grupo) return;
 
-  const statusVal = document.getElementById("d-status").value;
   const tipo = document.getElementById("d-tipo").value;
   let divisoes = null;
 
@@ -817,19 +675,15 @@ document.getElementById("form-despesa").addEventListener("submit", async (e) => 
   }
 
   const diaCompra = document.getElementById("d-compra").value || null;
-  const pagadorId =
-    statusVal === "PAGA" ? Number(document.getElementById("d-pagador").value) : null;
-  const responsavelPixId =
-    statusVal === "PENDENTE" ? Number(document.getElementById("d-responsavel-pix").value) : null;
+  const pagadorId = Number(document.getElementById("d-pagador").value);
 
   try {
-    const criada = await apiFetch("/despesas/", {
+    await apiFetch("/despesas/", {
       method: "POST",
       body: JSON.stringify({
         descricao: document.getElementById("d-descricao").value,
         valor_total: Number(document.getElementById("d-valor").value),
         dia_compra: diaCompra,
-        status: statusVal,
         grupo_id: grupo.id,
         pagador_id: pagadorId,
         tipo_divisao: tipo,
@@ -837,19 +691,10 @@ document.getElementById("form-despesa").addEventListener("submit", async (e) => 
       }),
     });
 
-    if (statusVal === "PENDENTE" && criada && criada.id && responsavelPixId) {
-      salvarResponsavelPix(criada.id, responsavelPixId);
-    }
-
     e.target.reset();
     definirDataHoje();
-    alternarVisibilidadePagador();
     renderizarCamposDivisao();
-    mostrarAlerta(
-      statusVal === "PENDENTE"
-        ? "Conta pendente registrada!"
-        : "Despesa paga registrada e saldos recalculados!"
-    );
+    mostrarAlerta("Despesa registrada e saldos recalculados!");
     await atualizarPainelDespesas();
   } catch (err) {
     mostrarAlerta(err.message, "erro");
