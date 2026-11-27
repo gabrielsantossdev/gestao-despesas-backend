@@ -10,7 +10,7 @@ grupos_router = APIRouter(prefix="/grupos", tags=["Grupos"])
 despesas_router = APIRouter(prefix="/despesas", tags=["Despesas"])
 
 
-# ROTAS DE USUÁRIOS E AMIZADES (RF1, RF6 e RF7)
+# ROTAS DE USUÁRIOS E AMIZADES (RF1, RF6 e RF8)
 @usuarios_router.post(
     "/",
     response_model=schemas.UsuarioResponse,
@@ -62,7 +62,7 @@ def deletar_usuario(usuario_id: int, db: Session = Depends(get_db)):
 @usuarios_router.get(
     "/{usuario_id}/amigos",
     response_model=List[schemas.UsuarioResponse],
-    summary="Listar amigos conectados ao usuário (RF7)",
+    summary="Listar amigos conectados ao usuário (RF8)",
 )
 def listar_amigos(usuario_id: int, db: Session = Depends(get_db)):
     return AmizadeService.listar_amigos(db, usuario_id)
@@ -72,7 +72,7 @@ def listar_amigos(usuario_id: int, db: Session = Depends(get_db)):
     "/{usuario_id}/amigos",
     response_model=schemas.UsuarioResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Adicionar um usuário já cadastrado à lista de amigos (RF7)",
+    summary="Adicionar um usuário já cadastrado à lista de amigos (RF8)",
 )
 def adicionar_amigo(
     usuario_id: int, dados: schemas.AmigoAdd, db: Session = Depends(get_db)
@@ -89,7 +89,7 @@ def remover_amigo(usuario_id: int, amigo_id: int, db: Session = Depends(get_db))
     AmizadeService.remover_amigo(db, usuario_id, amigo_id)
 
 
-# ROTAS DE GRUPOS, BALANÇO FINANCEIRO E EXTRATO INDIVIDUAL (RF1, RF4, RF5, RF6, RF7 e RF9)
+# ROTAS DE GRUPOS, BALANÇO FINANCEIRO E EXTRATO INDIVIDUAL (RF1, RF4, RF5, RF6, RF8 e RF10)
 @grupos_router.post(
     "/",
     response_model=schemas.GrupoResponse,
@@ -162,7 +162,7 @@ def obter_resumo_financeiro(grupo_id: int, db: Session = Depends(get_db)):
 @grupos_router.get(
     "/{grupo_id}/membros/{usuario_id}/extrato",
     response_model=schemas.ExtratoMembroGrupo,
-    summary="Gerar extrato detalhado por membro no grupo (RF9)",
+    summary="Gerar extrato detalhado por membro no grupo (RF10)",
 )
 def obter_extrato_membro(
     grupo_id: int, usuario_id: int, db: Session = Depends(get_db)
@@ -170,12 +170,12 @@ def obter_extrato_membro(
     return DespesaService.gerar_extrato_membro(db, grupo_id, usuario_id)
 
 
-# ROTAS DE DESPESAS E PENDÊNCIAS (RF2, RF3 e RF8)
+# ROTAS DE DESPESAS (RF2 e RF3)
 @despesas_router.post(
     "/",
     response_model=schemas.DespesaResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Registrar despesa paga ou pendente com divisão igualitária, exata ou percentual",
+    summary="Registrar despesa com divisão igualitária, exata ou percentual",
 )
 def registrar_despesa(dados: schemas.DespesaCreate, db: Session = Depends(get_db)):
     return DespesaService.registrar_despesa(db, dados)
@@ -188,17 +188,6 @@ def registrar_despesa(dados: schemas.DespesaCreate, db: Session = Depends(get_db
 )
 def listar_despesas_grupo(grupo_id: int, db: Session = Depends(get_db)):
     return DespesaService.listar_despesas_grupo(db, grupo_id)
-
-
-@despesas_router.patch(
-    "/{despesa_id}/pagar",
-    response_model=schemas.DespesaResponse,
-    summary="Quitar uma despesa pendente informando quem efetuou o pagamento (RF8)",
-)
-def quitar_despesa_pendente(
-    despesa_id: int, dados: schemas.DespesaPagarInput, db: Session = Depends(get_db)
-):
-    return DespesaService.quitar_despesa_pendente(db, despesa_id, dados.pagador_id)
 
 
 @despesas_router.put(

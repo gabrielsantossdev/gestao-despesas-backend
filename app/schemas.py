@@ -11,12 +11,7 @@ class TipoDivisao(str, Enum):
     PORCENTAGEM = "PORCENTAGEM"
 
 
-class StatusDespesa(str, Enum):
-    PAGA = "PAGA"
-    PENDENTE = "PENDENTE"
-
-
-# SCHEMAS DE USUÁRIO E AMIZADES (RF1, RF6 e RF7)
+# SCHEMAS DE USUÁRIO E AMIZADES (RF1, RF6 e RF8)
 class UsuarioCreate(BaseModel):
     nome: str = Field(..., min_length=2, max_length=100)
     telefone: str = Field(..., min_length=8, max_length=20)
@@ -47,14 +42,10 @@ class AmigoAdd(BaseModel):
     email: Optional[EmailStr] = None
 
 
-# SCHEMAS DE GRUPO (RF1 e RF7)
+# SCHEMAS DE GRUPO (RF1 e RF8)
 class GrupoCreate(BaseModel):
     nome: str = Field(..., min_length=2, max_length=100)
     criador_id: Optional[int] = None
-
-
-class GrupoUpdate(BaseModel):
-    nome: str = Field(..., min_length=2, max_length=100)
 
 
 class MembroAdd(BaseModel):
@@ -72,7 +63,7 @@ class GrupoResponse(BaseModel):
         from_attributes = True
 
 
-# SCHEMAS DE DESPESAS E DIVISÃO (RF2, RF3 e RF8)
+# SCHEMAS DE DESPESAS E DIVISÃO (RF2 e RF3)
 class DivisaoInput(BaseModel):
     usuario_id: int
     valor_devido: Optional[float] = Field(None, ge=0)
@@ -84,9 +75,8 @@ class DespesaCreate(BaseModel):
     valor_total: float = Field(..., gt=0, description="O valor da despesa deve ser maior que zero")
     dia_compra: Optional[date] = None
     dia_vencimento: Optional[date] = None
-    status: StatusDespesa = StatusDespesa.PAGA
     grupo_id: int
-    pagador_id: Optional[int] = None
+    pagador_id: int
     tipo_divisao: TipoDivisao = TipoDivisao.IGUAL
     divisoes: Optional[List[DivisaoInput]] = None
 
@@ -94,10 +84,6 @@ class DespesaCreate(BaseModel):
 class DespesaUpdate(BaseModel):
     descricao: Optional[str] = Field(None, min_length=2, max_length=150)
     dia_vencimento: Optional[date] = None
-
-
-class DespesaPagarInput(BaseModel):
-    pagador_id: int
 
 
 class DivisaoResponse(BaseModel):
@@ -116,9 +102,8 @@ class DespesaResponse(BaseModel):
     valor_total: float
     dia_compra: date
     dia_vencimento: Optional[date] = None
-    status: str
     grupo_id: int
-    pagador_id: Optional[int] = None
+    pagador_id: int
     divisoes: List[DivisaoResponse] = []
 
     class Config:
@@ -147,7 +132,6 @@ class ResumoFinanceiroGrupo(BaseModel):
     grupo_id: int
     grupo_nome: str
     total_despesas_grupo: float
-    total_pendente_grupo: float
     saldos: List[SaldoUsuario]
     acertos_simplificados: List[SugestaoAcerto]
 
@@ -157,10 +141,9 @@ class ItemExtratoMembro(BaseModel):
     descricao: str
     dia_compra: date
     dia_vencimento: Optional[date] = None
-    status: str
     valor_total_despesa: float
-    pagador_id: Optional[int] = None
-    pagador_nome: Optional[str] = None
+    pagador_id: int
+    pagador_nome: str
     minha_cota: float
     percentual: Optional[float] = None
     eu_paguei: bool
@@ -174,6 +157,5 @@ class ExtratoMembroGrupo(BaseModel):
     usuario_nome: str
     total_pago_por_mim: float
     total_minhas_cotas_pagas: float
-    total_pendente_a_pagar: float
     saldo_liquido_atual: float
     itens: List[ItemExtratoMembro]

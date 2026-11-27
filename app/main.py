@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from app import models
 from app.database import engine, Base, SessionLocal
 from app.seed import popular_dados_iniciais
 from app.services import RegraNegocioError, RecursoNaoEncontradoError

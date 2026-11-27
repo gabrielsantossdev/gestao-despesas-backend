@@ -106,13 +106,6 @@ class GrupoRepository:
         return db.query(models.Grupo).all()
 
     @staticmethod
-    def atualizar(db: Session, grupo: models.Grupo, nome: str) -> models.Grupo:
-        grupo.nome = nome
-        db.commit()
-        db.refresh(grupo)
-        return grupo
-
-    @staticmethod
     def deletar(db: Session, grupo: models.Grupo) -> None:
         db.delete(grupo)
         db.commit()
@@ -176,14 +169,6 @@ class DespesaRepository:
             despesa.descricao = dados.descricao
         if dados.dia_vencimento is not None:
             despesa.dia_vencimento = dados.dia_vencimento
-        db.commit()
-        db.refresh(despesa)
-        return despesa
-
-    @staticmethod
-    def marcar_como_paga(db: Session, despesa: models.Despesa, pagador_id: int) -> models.Despesa:
-        despesa.status = schemas.StatusDespesa.PAGA.value
-        despesa.pagador_id = pagador_id
         db.commit()
         db.refresh(despesa)
         return despesa
